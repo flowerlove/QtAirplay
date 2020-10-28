@@ -26,16 +26,16 @@ public:
     void setDeviceMap(QMap<char*, DeviceInfo*> *device_map);
 
     void EmitCreatePlayer(char* id);
-
+    void EmitDestroyPlayer(char* id);
 private:
     explicit CastScreenManager(QObject *parent = nullptr);
 
 signals:
     void create_player(char* id);
-
+    void destroy_player(char* id);
 public slots:
     void OnCreatePlayer(char* id);
-
+    void OnDestroyPlayer(char* id);
 private:
     static CastScreenManager *instance_;
     MainWindow* mainWindow_;

@@ -40,11 +40,7 @@ void AirServerCallback::disconnected(const char *remoteName, const char *remoteD
     if(manager->deviceMap()->contains((char*)remoteDeviceId))
     {
         DeviceInfo* device = manager->deviceMap()->value((char*)remoteDeviceId);
-        device->player_->unInit();
-        delete device->player_;
-        memset(device->m_chRemoteDeviceId, 0, 128);
-        delete device;
-        manager->deviceMap()->remove((char*)remoteDeviceId);
+        manager->EmitDestroyPlayer((char*)remoteDeviceId);
     }
 }
 

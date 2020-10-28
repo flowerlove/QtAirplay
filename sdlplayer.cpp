@@ -2,6 +2,8 @@
 #include <QTime>
 using namespace std;
 
+int SDLPlayer::window_x = 0;
+
 SDLPlayer::SDLPlayer(QObject *parent) : QObject(parent)
   , sdl_window_(NULL)
   , sdl_render_(NULL)
@@ -15,18 +17,14 @@ SDLPlayer::SDLPlayer(QObject *parent) : QObject(parent)
 {
     ZeroMemory(&m_sAudioFmt, sizeof(SFgAudioFrame));
     ZeroMemory(&m_rect, sizeof(SDL_Rect));
-    m_mutexAudio = CreateMutex(NULL, FALSE, NULL);
-    m_mutexVideo = CreateMutex(NULL, FALSE, NULL);
-
+    audio_mutex_ = SDL_CreateMutex();
+    video_mutex_ = SDL_CreateMutex();
     connect(this, SIGNAL(play_video_event(unsigned int, unsigned int)), SLOT(OnPlayVideoEvent(unsigned int, unsigned int)), Qt::QueuedConnection);
 }
 
 SDLPlayer::~SDLPlayer()
 {
     unInit();
-
-    CloseHandle(m_mutexAudio);
-    CloseHandle(m_mutexVideo);
 }
 
 bool SDLPlayer::init()
@@ -51,7 +49,11 @@ void SDLPlayer::unInit()
     unInitVideo();
     unInitAudio();
 
+    SDL_DestroyMutex(audio_mutex_);
+    SDL_DestroyMutex(video_mutex_);
+
     SDL_Quit();
+    flag = false;
 }
 
 void SDLPlayer::outputVideo(SFgVideoFrame *data)
@@ -60,27 +62,20 @@ void SDLPlayer::outputVideo(SFgVideoFrame *data)
         return;
     }
 
-    if (data->width != m_rect.w || data->height != m_rect.h) {
-        {
-//            //AutoLock oLock(m_mutexVideo, "unInitVideo");
-//            if (NULL != m_yuv) {
-//                SDL_Tex(m_yuv);
-//                m_yuv = NULL;
-//            }
-        }
+    if (data->width != m_rect.w || data->height != m_rect.h)
+    {
         if(!flag)
         {
-            emit play_video_event(data->width, data->height);
             flag = true;
+            emit play_video_event(data->width, data->height);
         }
         return;
     }
 
-    //AutoLock oLock(m_mutexVideo, "outputVideo");
+    SDL_LockMutex(video_mutex_);
     if (sdl_texture_ == NULL) {
         return;
     }
-
 
     SDL_UpdateYUVTexture(sdl_texture_, &m_rect,
                     data->data, data->pitch[0],
@@ -96,6 +91,8 @@ void SDLPlayer::outputVideo(SFgVideoFrame *data)
     m_rect.y = 0;
     m_rect.w = data->width;
     m_rect.h = data->height;
+
+    SDL_UnlockMutex(video_mutex_);
 
 //    free(y_data);
 //    free(u_data);
@@ -123,10 +120,9 @@ void SDLPlayer::outputAudio(SFgAudioFrame *data)
     dataClone->data = new uint8_t[dataClone->dataTotal];
     memcpy(dataClone->data, data->data, dataClone->dataTotal);
 
-    {
-//        AutoLock oLock(m_mutexAudio, "outputAudio");
-        m_queueAudio.push(dataClone);
-    }
+    SDL_LockMutex(audio_mutex_);
+    m_queueAudio.push(dataClone);
+    SDL_UnlockMutex(audio_mutex_);
 }
 
 void SDLPlayer::initVideo(int width, int height)
@@ -134,9 +130,9 @@ void SDLPlayer::initVideo(int width, int height)
     if(sdl_window_)
         return;
 
-    QString window_name = "AirPlay Demo" + QTime::currentTime().toString();
+    QString window_name = QString::fromStdWString(device_name_);
     sdl_window_ = SDL_CreateWindow(window_name.toStdString().c_str(),
-                                   SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   window_x, 100,
                                    width, height,
                                    SDL_WINDOW_OPENGL);
     if(!sdl_window_)
@@ -145,11 +141,11 @@ void SDLPlayer::initVideo(int width, int height)
         return;
 
     }
-
+    //window_x += width;
     sdl_render_ = SDL_CreateRenderer(sdl_window_, -1, 0);
 
 
-    //        AutoLock oLock(m_mutexVideo, "initVideo");
+    SDL_LockMutex(video_mutex_);
     sdl_texture_ = SDL_CreateTexture(sdl_render_, SDL_PIXELFORMAT_IYUV,
                                      SDL_TEXTUREACCESS_STREAMING,
                                      width, height);
@@ -157,16 +153,18 @@ void SDLPlayer::initVideo(int width, int height)
     m_rect.y = 0;
     m_rect.w = width;
     m_rect.h = height;
+    SDL_UnlockMutex(video_mutex_);
+    flag = false;
 }
 
 void SDLPlayer::unInitVideo()
 {
+    SDL_LockMutex(video_mutex_);
     if (NULL != sdl_window_) {
         SDL_DestroyWindow(sdl_window_);
         sdl_window_ = NULL;
     }
 
-    //        AutoLock oLock(m_mutexVideo, "unInitVideo");
     if (NULL != sdl_texture_)
     {
         SDL_DestroyTexture(sdl_texture_);
@@ -181,7 +179,7 @@ void SDLPlayer::unInitVideo()
 
     m_rect.w = 0;
     m_rect.h = 0;
-
+    SDL_UnlockMutex(video_mutex_);
     unInitAudio();
 }
 
@@ -228,16 +226,16 @@ void SDLPlayer::unInitAudio()
     m_bAudioInited = false;
     memset(&m_sAudioFmt, 0, sizeof(m_sAudioFmt));
 
+
+    SDL_LockMutex(audio_mutex_);
+    while (!m_queueAudio.empty())
     {
-//        AutoLock oLock(m_mutexAudio, "unInitAudio");
-        while (!m_queueAudio.empty())
-        {
-            SDemoAudioFrame* pAudioFrame = m_queueAudio.front();
-            delete[] pAudioFrame->data;
-            delete pAudioFrame;
-            m_queueAudio.pop();
-        }
+        SDemoAudioFrame* pAudioFrame = m_queueAudio.front();
+        delete[] pAudioFrame->data;
+        delete pAudioFrame;
+        m_queueAudio.pop();
     }
+    SDL_UnlockMutex(audio_mutex_);
 
     if (m_fileWav != NULL) {
         fclose(m_fileWav);
@@ -252,7 +250,7 @@ void SDLPlayer::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
     int streamPos = 0;
     memset(stream, 0, len);
 
-//    AutoLock oLock(pThis->m_mutexAudio, "sdlAudioCallback");
+    SDL_LockMutex(pThis->audio_mutex_);
     while (!pThis->m_queueAudio.empty())
     {
         SDemoAudioFrame* pAudioFrame = pThis->m_queueAudio.front();
@@ -274,11 +272,18 @@ void SDLPlayer::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
             break;
         }
     }
+    SDL_UnlockMutex(pThis->audio_mutex_);
+}
+
+void SDLPlayer::setDeviceName(wstring name)
+{
+    device_name_ = name;
 }
 
 void SDLPlayer::OnPlayVideoEvent(unsigned int width, unsigned int height)
 {
     if (width != m_rect.w || height != m_rect.h || sdl_window_ == NULL || sdl_texture_ == NULL || sdl_render_ == NULL) {
+        unInitVideo();
         initVideo(width, height);
     }
 }

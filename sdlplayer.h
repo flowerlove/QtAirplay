@@ -8,6 +8,7 @@
 #include <queue>
 #include "SDL.h"
 #include "SDL_thread.h"
+#include "SDL_mutex.h"
 #undef main
 #include "airserver.h"
 
@@ -42,6 +43,8 @@ public:
     void initAudio(SFgAudioFrame* data);
     void unInitAudio();
     static void sdlAudioCallback(void* userdata, Uint8* stream, int len);
+
+    void setDeviceName(std::wstring name);
 signals:
     void play_video_event(unsigned int width, unsigned int height);
 public slots:
@@ -56,8 +59,8 @@ public:
     SFgAudioFrame m_sAudioFmt;
     bool m_bAudioInited;
     SDemoAudioFrameQueue m_queueAudio;
-    HANDLE m_mutexAudio;
-    HANDLE m_mutexVideo;
+    SDL_mutex* audio_mutex_;
+    SDL_mutex* video_mutex_;
 
     SDL_Event m_evtVideoSizeChange;
 
@@ -65,6 +68,8 @@ public:
     FILE* m_fileWav;
     float m_fRatio;
     bool flag = false;
+    static int window_x;
+    std::wstring device_name_;
 };
 
 #endif // SDLPLAYER_H

@@ -36,10 +36,16 @@ void CastScreenManager::EmitCreatePlayer(char* id)
     emit create_player(id);
 }
 
+void CastScreenManager::EmitDestroyPlayer(char *id)
+{
+    emit destroy_player(id);
+}
+
 CastScreenManager::CastScreenManager(QObject *parent) : QObject(parent)
 {
     device_map_ = new QMap<char*, DeviceInfo*>;
-    QObject::connect(this, SIGNAL(create_player(char*)), SLOT(OnCreatePlayer(char*)));
+    connect(this, SIGNAL(create_player(char*)), SLOT(OnCreatePlayer(char*)));
+    connect(this, SIGNAL(destroy_player(char*)), SLOT(OnDestroyPlayer(char*)));
 }
 
 void CastScreenManager::OnCreatePlayer(char* id)
@@ -48,6 +54,19 @@ void CastScreenManager::OnCreatePlayer(char* id)
     {
         DeviceInfo* device = device_map_->value(id);
         device->player_ = new SDLPlayer();
+        device->player_->setDeviceName(device->device_name_);
         device->player_->init();
+    }
+}
+
+void CastScreenManager::OnDestroyPlayer(char *id)
+{
+    if(device_map_->contains(id))
+    {
+        DeviceInfo* device = device_map_->value(id);
+        delete device->player_;
+        memset(device->m_chRemoteDeviceId, 0, 128);
+        delete device;
+        device_map_->remove(id);
     }
 }
